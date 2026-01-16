@@ -1,0 +1,6 @@
+Metadata-Version: 2.4
+Name: jouleHeatingSystems
+Version: 0.1.0
+Summary: Local utility functions for file management and data processing
+Author: Votre Nom
+Requires-Python: >=3.8

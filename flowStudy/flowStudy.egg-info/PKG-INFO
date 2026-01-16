@@ -1,0 +1,6 @@
+Metadata-Version: 2.4
+Name: flowStudy
+Version: 0.1.0
+Summary: Thermodynamics and fluid flow utilities
+Author: Votre Nom
+Requires-Python: >=3.8

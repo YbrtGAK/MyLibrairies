@@ -1,0 +1,10 @@
+[project]
+name = "jouleHeatingSystems"
+version = "0.1.0"
+description = "Local utility functions for file management and data processing"
+authors = [{ name="Votre Nom" }]
+requires-python = ">=3.8"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"

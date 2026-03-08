@@ -58,57 +58,64 @@ class ProbabilisticDataFrame():
         df.index : {self.df.index}
         udf.index : {self.udf.index}""")
         
-    def propagate(self, Xk:list[str], exp:list[str], alpha : float) -> None :
+    def propagate(self, Xk:list[str], exp:list[str], alpha : float = 0.05, method : str = 'MC') -> None :
 
         """Allow the user to calculate the expression exp and the uncertainty over
-        the output value with Monte Carlo Simulation"""
+        the output value with either Monte Carlo Simulations or uncertainty propagation.
+        Default mode : Monte Carlo"""
 
-        # Determination of N_pop for a Serie or a DataFrame
+        match method :
 
-        if len(self.df.shape) == 2 : 
-            N_pop = self.df.shape[0]
-        else :
-            N_pop = 1
+            case 'MC' :
+                # Determination of N_pop for a Serie or a DataFrame
 
-        # Test user input : Nb var input has to be equal to the nb var in the expression
+                if len(self.df.shape) == 2 : 
+                    N_pop = self.df.shape[0]
+                else :
+                    N_pop = 1
 
-        if len(list(set([l[0] for l in exp[-1].split('X')[1:] if l[0].isdigit()]))) != len(Xk) :
-            raise ValueError("""
-            Xk and exp have different variable numbers.
-            If not, make sure there is no Xi with i a number 
-            that is not a variable in your expression.""")
-        
-        N = self.N_samples_calculation(alpha) # Determination of the number of simulation samples N
-        nVar = len(Xk)
-        exp_df = exp_udf = exp_df_mc = exp[-1] # Initialize expressions for df and udf
+                # Test user input : Nb var input has to be equal to the nb var in the expression
 
-        # Initialization of df_mc with  index == df.index and columns == nVar 
-        df_mc = pd.DataFrame(index=range(N_pop), columns=Xk)
-        # Replace each input variable in the expression
-        for i in range(nVar) :
-            # Expression for df
-            exp_df = exp_df.replace('X'+str(i), "self.df['" + Xk[i] + "']")
-            # Expression to calculate the error
-            exp_udf = exp_udf.replace('X'+str(i), "self.udf['" + Xk[i] + "']")
-            # Expression to apply the expression on the samples in df_mc
-            exp_df_mc = exp_df_mc.replace('X'+str(i), "df_mc['" + Xk[i] + "']")
-            # Generation of the samples for each variable
-            samples = np.random.normal(loc = self.df[Xk[i]],
-                                    scale = self.udf[Xk[i]],
-                                    size = (N,N_pop))
-            # Shaping the list to be added to df_mc
-            list_samples = [samples[:,index] for index in range(len(samples[0]))]
-            # Add the new column with generated samples for each 
-            df_mc[Xk[i]] = pd.Series(list_samples)
+                if len(list(set([l[0] for l in exp[-1].split('X')[1:] if l[0].isdigit()]))) != len(Xk) :
+                    raise ValueError("""
+                    Xk and exp have different variable numbers.
+                    If not, make sure there is no Xi with i a number 
+                    that is not a variable in your expression.""")
+                
+                N = self.N_samples_calculation(alpha) # Determination of the number of simulation samples N
+                nVar = len(Xk)
+                exp_df = exp_udf = exp_df_mc = exp[-1] # Initialize expressions for df and udf
 
-        ## Monte Carlo simulations for uncertainty calculation
+                # Initialization of df_mc with  index == df.index and columns == nVar 
+                df_mc = pd.DataFrame(index=range(N_pop), columns=Xk)
+                # Replace each input variable in the expression
+                for i in range(nVar) :
+                    # Expression for df
+                    exp_df = exp_df.replace('X'+str(i), "self.df['" + Xk[i] + "']")
+                    # Expression to calculate the error
+                    exp_udf = exp_udf.replace('X'+str(i), "self.udf['" + Xk[i] + "']")
+                    # Expression to apply the expression on the samples in df_mc
+                    exp_df_mc = exp_df_mc.replace('X'+str(i), "df_mc['" + Xk[i] + "']")
+                    # Generation of the samples for each variable
+                    samples = np.random.normal(loc = self.df[Xk[i]],
+                                            scale = self.udf[Xk[i]],
+                                            size = (N,N_pop))
+                    # Shaping the list to be added to df_mc
+                    list_samples = [samples[:,index] for index in range(len(samples[0]))]
+                    # Add the new column with generated samples for each 
+                    df_mc[Xk[i]] = pd.Series(list_samples)
 
-        # Evaluate the expression with df_mc
-        df_mc[exp[0]] = eval(exp_df_mc)
+                ## Monte Carlo simulations for uncertainty calculation
 
-        # Calculate their mean and std
-        self.df[exp[0]] = df_mc[exp[0]].apply(np.mean)
-        self.udf[exp[0]] = df_mc[exp[0]].apply(np.std)
+                # Evaluate the expression with df_mc
+                df_mc[exp[0]] = eval(exp_df_mc)
+
+                # Calculate their mean and std
+                self.df[exp[0]] = df_mc[exp[0]].apply(np.mean)
+                self.udf[exp[0]] = df_mc[exp[0]].apply(np.std)
+
+            case 'linear' :
+                print('To be treated')
 
     def N_samples_calculation(self, alpha:float) -> int :
         """Determination of the number of simulation samples N"""

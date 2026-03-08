@@ -87,7 +87,7 @@ def h5_to_df(h5py_file_path, scan:str=None, detector:str=None,axes:str=None, dat
         
     return(dfs)
 
-def datx_to_dict(path) :
+def datx_to_dict(path : str) -> dict :
         # unpack an h5 group into a dict
     def _group2dict(obj):
         return {k: _decode_h5(v) for k, v in zip(obj.keys(), obj.values())}

@@ -16,3 +16,6 @@ utilities/data/h5.py
 utilities/data/lvm.py
 utilities/data/pickle.py
 utilities/data/variableManagement.py
+utilities/data/uncertainty/LinearRegressionErrorTable.py
+utilities/data/uncertainty/ProbabilisticDataFrame.py
+utilities/data/uncertainty/__init__.py

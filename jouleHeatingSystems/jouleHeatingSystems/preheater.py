@@ -26,8 +26,8 @@ class Preheater(CurrentPassageTube):
         self.name = 'PH'
         self.L_clamp_up = 0 #m
         self.L = 1.910 #m
-        self.Sin_clamps = self.L
         self.rint = 1.5E-3 #m
+        self.Sin_clamps = 2*pi*self.L*self.rint
         self.dint = self.rint*2 #m
         self.rext = 3E-3 #m
         self.dext = self.rext*2 #m
@@ -36,7 +36,7 @@ class Preheater(CurrentPassageTube):
         self.Aint = pi*self.rint**2 #m²
         self.Aext = pi*self.rext**2 #m²
         self.V = self.Aint * self.L #m3
-        self.LD = self.L/(self.rint*2)
+        self.LD = self.L/(self.dint)
         self.Lrf = self.L/self.rint
         self.z = {'1':665E-3, '2':809E-3, '3':1347E-3, '4':1585E-3}
         self.coeffs = [135.32645789,1.03232876]
@@ -311,4 +311,10 @@ new_nloss : {new_nloss}
         self.df['h_PH_mean [W/m²]'] = (self.df['h1_PH [W/m²]'] + self.df['h2_PH [W/m²]'] + self.df['h3_PH [W/m²]'] + self.df['h4_PH [W/m²]'])/4
 
         
-        
+if __name__ == "__main__":
+    ph = Preheater()
+    print(f"""
+L : {ph.L}
+rint : {ph.rint}
+Sint : {ph.Sint}
+    """)

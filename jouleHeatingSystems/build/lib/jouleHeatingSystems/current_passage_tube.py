@@ -14,7 +14,13 @@ class CurrentPassageTube():
     
     def __init__(self):
         
-        self.f_Twall_in_z = lambda Two,qeff_PH : Two + qeff_PH/(16*13.4)*(self.dext**2 - self.dint**2) - qeff_PH*self.dext**2/(8*13.4)*log(self.dext/self.dint)
+        # Correct formula: T_wi = T_wo + q'''*(dext²-dint²)/(16k) - q'''*dext²/(8k)*ln(dext/dint)
+        # with q''' = qeff * 4*dint/(dext²-dint²), substituted and simplified:
+        self.f_Twall_in_z = lambda Two, qeff : (
+            Two
+            + qeff * self.dint / (4 * 13.4)
+            - qeff * self.dint * self.dext**2 / (2 * 13.4 * (self.dext**2 - self.dint**2)) * log(self.dext / self.dint)
+        )
          
     def get_data(self,df):
         self.df = df
@@ -33,11 +39,11 @@ class CurrentPassageTube():
     
     def Tflz_2f(self, Tin, Pin, dP, z):
         """Calculate the fluid saturated temperature according to its pressure loss"""
-        return(Tsat(Pin - dP*z/self.L),self.fluid)
+        return Tsat(Pin - dP*z/self.L, self.fluid)
         
-    def velocity(self, mdot,rho) : 
+    def velocity(self, mdot, rho) :
         """Calculate the mean fluid velocity in the tube"""
-        return mdot/rho/self.Sint
+        return mdot / rho / self.Aint
     
     def nloss_2ph(self):
         self.df_buff = self.df.copy()
@@ -66,5 +72,6 @@ class CurrentPassageTube():
             
             self.df.iloc[i]
     
-test = CurrentPassageTube()
+if __name__ == "__main__":
+    test = CurrentPassageTube()
 

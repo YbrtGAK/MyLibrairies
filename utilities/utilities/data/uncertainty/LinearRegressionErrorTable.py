@@ -13,7 +13,7 @@ import pandas as pd
 def generateUdf(df_meas : pd.DataFrame) -> pd.DataFrame :
 
     # Get the excel in a table
-    excel_path = r"C:\Users\yberton\OneDrive - INSA Lyon\Expérimental\Acquisition\Etalonnage\Etalonnage.xlsm"
+    excel_path = r"C:\Users\admin-manip\OneDrive - INSA Lyon\Expérimental\Acquisition\Etalonnage\Etalonnage.xlsm"
     df_excel_pressure = pd.read_excel(excel_path,sheet_name="capteurs de pression")
     df_excel_thermocouple = pd.read_excel(excel_path, sheet_name="thermocouples")
     df_excel_thermocouple['RMSE [°C]'] = df_excel_thermocouple['RMSE [°C]'].fillna(1.5)
@@ -58,7 +58,7 @@ def generateUdf(df_meas : pd.DataFrame) -> pd.DataFrame :
          as a sum of an uncertainty over the value + 
          1400 mA"""
 
-         return(current*0.2 + 1.4)
+         return(current*0.002 + 0.0014)
 
     def current_uncertainty_TS(current : float) -> float : 
          """Return the current uncertainty value

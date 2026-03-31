@@ -9,7 +9,7 @@ Class of the evaporator
 
 # Imports
 from math import pi, log
-from flowStudy.thermodynamics import H, Psat, Tsat, rho, nu, Hl, Hv, Cp
+from flowStudy.thermodynamics import H, Psat, Tsat, rho, mu, Hl, Hv, Cp
 from jouleHeatingSystems.current_passage_tube import CurrentPassageTube
 from flowStudy.flow import G,Re 
 from flowStudy.surface_finishes import f_blasius
@@ -47,7 +47,13 @@ class Evaporator(CurrentPassageTube):
     def add_funs(self):
         
         self.f_pow_ratio =lambda dt,Pelec : (1/(0.06325581772940454 - 1.149104767178758868))*(+(dt)/(Pelec) - 1.149104767178758868)
-        self.f_Twall_in_z = lambda Two,qeff_TS : Two + qeff_TS/(16*13.4)*(self.dext**2 - self.dint**2) - qeff_TS*self.dext**2/(8*13.4)*log(self.dext/self.dint)
+        # Correct formula: T_wi = T_wo + q'''*(dext²-dint²)/(16k) - q'''*dext²/(8k)*ln(dext/dint)
+        # with q''' = qeff * 4*dint/(dext²-dint²), substituted and simplified:
+        self.f_Twall_in_z = lambda Two, qeff : (
+            Two
+            + qeff * self.dint / (4 * 13.4)
+            - qeff * self.dint * self.dext**2 / (2 * 13.4 * (self.dext**2 - self.dint**2)) * log(self.dext / self.dint)
+        )
         self.nloss_mono = lambda h : self.coeffs[0]*h**(-self.coeffs[1])
         self.Pz = lambda dP_meas, dP_mono, Pin, z : (Pin - dP_mono) - ( (dP_meas - dP_mono)/(self.L) * (z + self.L_clamp_up))   
         
@@ -72,7 +78,7 @@ class Evaporator(CurrentPassageTube):
         df_all = self.df
         
         #Mean temperatures of the test section
-        df_all[r'Tfl_TS_mean [°C]'] = (df_all['218 - E_out_imm [°C]'] - df_all["202 - E_in_imm [°C]"])/2
+        df_all[r'Tfl_TS_mean [°C]'] = (df_all['218 - E_out_imm [°C]'] + df_all["202 - E_in_imm [°C]"])/2
         df_all[r'dT_amb_TS [°C]'] = df_all[r'Tfl_TS_mean [°C]'] - df_all['230 - Ambiant [°C]']
     
         #Thermal power TS
@@ -202,9 +208,9 @@ class Evaporator(CurrentPassageTube):
 
         #Calculate some thermodynamical proprieties
         self.df[r'$Rho_{TS,in}$ [$m^3$/$kg$]'] = rho(self.df['118 - P_TS_in [bars]'].values*1e5, self.df["202 - E_in_imm [°C]"].values + 273.15,"R245fa")
-        self.df['nu'] = nu(self.df["118 - P_TS_in [bars]"].values*1E5, self.df['218 - E_out_imm [°C]'].values + 273.15, "R245fa")
-        self.df['Re [-]'] = Re(self.df['G (kg/m²/s)'].values,self.dint,self.df['nu'].values)
-        self.df[r'$v$ $[m/s]$'] = self.df['105 - mass [kg/s]'].values/self.df[r'$Rho_{TS,in}$ [$m^3$/$kg$]'].values/self.Sint
+        self.df['mu'] = mu(self.df["118 - P_TS_in [bars]"].values*1E5, self.df['218 - E_out_imm [°C]'].values + 273.15, "R245fa")
+        self.df['Re [-]'] = Re(self.df['G (kg/m²/s)'].values,self.dint,self.df['mu'].values)
+        self.df[r'$v$ $[m/s]$'] = self.df['105 - mass [kg/s]'].values/self.df[r'$Rho_{TS,in}$ [$m^3$/$kg$]'].values/self.Aint
         self.df['Cp_TS_mean [J/kg/k]'] = Cp( self.df["118 - P_TS_in [bars]"].values*1e5, self.df[r'Tfl_TS_mean [°C]'] + 273.15, 'R245fa')
             
         #Calculate pressure drop
@@ -241,17 +247,16 @@ class Evaporator(CurrentPassageTube):
                     
                 Tsatz = Tsat(self.Pz(self.df['dP_TS [mbars]'].iloc[j]*1E2,
                             self.df[r'dP mono [Pa]'].iloc[j], self.df['118 - P_TS_in [bars]'].iloc[j]*1e5, 0),"R245fa") - 273.15
-                while Tsatz - Tfz > 0 :
-                    
-                    z+=0.001
+                while Tsatz - Tfz > 0 and z <= self.dL_clamps:
+                    z += 0.001
                     Tfz = self.Tflz_1f(self.df["202 - E_in_imm [°C]"].iloc[j],
                                                              self.df['Cp_TS_mean [J/kg/k]'].iloc[j] ,
                                                              self.df['qeff_TS [W/m^2]'].iloc[j], z,
                                                              self.df['105 - mass [kg/s]'].iloc[j])
                     Tsatz = Tsat(self.Pz(self.df['dP_TS [mbars]'].iloc[j]*1E2,
                             self.df[r'dP mono [Pa]'].iloc[j], self.df['118 - P_TS_in [bars]'].iloc[j]*1e5, z),"R245fa") - 273.15
-            
-                if z > self.dL_clamps : 
+
+                if z > self.dL_clamps :
                     z = 'Monophasic'
                 L_ONB.append(z)
             
@@ -262,22 +267,27 @@ class Evaporator(CurrentPassageTube):
         #Calculate the fluid temperature at the zi
         self.df['Tf1 [°C]'] = self.df['Tf2 [°C]'] = self.df['Tf3 [°C]'] = pd.Series(np.nan,self.df.index)
         for j in range(len(self.df)):
-            if isinstance(self.df['ONB [m]'].iloc[j],float) :
-                for i in self.z : 
-                    
-                    if self.z[i] < self.df['ONB [m]'].iloc[j] : 
-                        self.df.iloc[j, -4 + int(i)] = self.Tflz_1f(self.df["202 - E_in_imm [°C]"].iloc[j],
-                                                                 self.df['Cp_TS_mean [J/kg/k]'].iloc[j] ,
-                                                                 self.df['qeff_TS [W/m^2]'].iloc[j], self.z[i],
-                                                                 self.df['105 - mass [kg/s]'].iloc[j])
-                    else : 
-                        self.df.iloc[j, -4 + int(i)] = Tsat(self.Pz(self.df['dP_TS [mbars]'].iloc[j]*1E2,
-                                self.df[r'dP mono [Pa]'].iloc[j], self.df['118 - P_TS_in [bars]'].iloc[j]*1e5, self.z[i]),"R245fa") - 273.15
-            else :
-                for i in self.z : 
-                    string = 'Tf' + str(i) + ' [°C]'
-                    self.df.iloc[j, -4 + int(i)] = Tsat(self.Pz(self.df['dP_TS [mbars]'].iloc[j]*1E2,
-                            self.df[r'dP mono [Pa]'].iloc[j], self.df['118 - P_TS_in [bars]'].iloc[j]*1e5, self.z[i]),"R245fa") - 273.15
+            idx = self.df.index[j]
+            if isinstance(self.df['ONB [m]'].iloc[j], float):
+                for i in self.z:
+                    if i == 'CHF':
+                        continue
+                    col = 'Tf' + i + ' [°C]'
+                    if self.z[i] < self.df['ONB [m]'].iloc[j]:
+                        self.df.at[idx, col] = self.Tflz_1f(self.df["202 - E_in_imm [°C]"].iloc[j],
+                                                             self.df['Cp_TS_mean [J/kg/k]'].iloc[j],
+                                                             self.df['qeff_TS [W/m^2]'].iloc[j], self.z[i],
+                                                             self.df['105 - mass [kg/s]'].iloc[j])
+                    else:
+                        self.df.at[idx, col] = Tsat(self.Pz(self.df['dP_TS [mbars]'].iloc[j]*1E2,
+                                self.df[r'dP mono [Pa]'].iloc[j], self.df['118 - P_TS_in [bars]'].iloc[j]*1e5, self.z[i]), "R245fa") - 273.15
+            else:
+                for i in self.z:
+                    if i == 'CHF':
+                        continue
+                    col = 'Tf' + i + ' [°C]'
+                    self.df.at[idx, col] = Tsat(self.Pz(self.df['dP_TS [mbars]'].iloc[j]*1E2,
+                            self.df[r'dP mono [Pa]'].iloc[j], self.df['118 - P_TS_in [bars]'].iloc[j]*1e5, self.z[i]), "R245fa") - 273.15
 
         # h (heat transfer coefficient) calculus
         self.df['h1 [W/m/K]'] = self.df['qeff_TS [W/m^2]']/(self.df['Twi_1 [°C]'] - self.df['Tf1 [°C]'])

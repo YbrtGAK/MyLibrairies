@@ -11,7 +11,7 @@ Class of the preheater
 # Imports
 from math import pi, log
 from jouleHeatingSystems.current_passage_tube import CurrentPassageTube
-from flowStudy.thermodynamics import H, Psat, Tsat, rho, nu, Hl, Hv, Cp
+from flowStudy.thermodynamics import H, Psat, Tsat, rho, mu, Hl, Hv, Cp
 from flowStudy.flow import G,Re 
 import pandas as pd
 import numpy as np
@@ -70,9 +70,9 @@ class Preheater(CurrentPassageTube):
         
         #Calculate some thermodynamical proprieties
         self.df[r'$Rho_{TS,in}$ [$m^3$/$kg$]'] = rho(self.df['118 - P_TS_in [bars]'].values*1e5, self.df["202 - E_in_imm [°C]"].values + 273.15,"R245fa")
-        self.df['nu'] = nu(self.df["118 - P_TS_in [bars]"].values*1E5, self.df['218 - E_out_imm [°C]'].values + 273.15, "R245fa")
-        self.df['Re [-]'] = Re(self.df['G (kg/m²/s)'].values,self.dint,self.df['nu'].values)
-        self.df[r'$v$ $[m/s]$'] = self.df['105 - mass [kg/s]'].values/self.df[r'$Rho_{TS,in}$ [$m^3$/$kg$]'].values/self.Sint
+        self.df['mu'] = mu(self.df["118 - P_TS_in [bars]"].values*1E5, self.df['218 - E_out_imm [°C]'].values + 273.15, "R245fa")
+        self.df['Re [-]'] = Re(self.df['G (kg/m²/s)'].values,self.dint,self.df['mu'].values)
+        self.df[r'$v$ $[m/s]$'] = self.df['105 - mass [kg/s]'].values/self.df[r'$Rho_{TS,in}$ [$m^3$/$kg$]'].values/self.Aint
         
         #Mean temperatures of the preheater
         self.df[r'Tfl_PH_mean [°C]'] = (self.df["224 - PH_inlet_imm [°C]"] + self.df["202 - E_in_imm [°C]"])/2

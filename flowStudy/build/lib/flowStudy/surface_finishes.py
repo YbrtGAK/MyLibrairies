@@ -13,7 +13,7 @@ from scipy.special import lambertw
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
 f = lambda dint,dP,L,m_dot,rho : (pi*dP*dint**5*rho)/(32*L*m_dot**2) #Friction factor [-]
-f_blasius = lambda Rel : 0.0791*Rel**(-0.25) #Blasius correlation for friction factor [-]
+f_blasius = lambda Rel : 0.3164*Rel**(-0.25) #Blasius correlation for Darcy friction factor [-]
 
 #Churchill correlation for friction factor [-]
 A_churchill = lambda Rel, dinner, Rp : (2.457*log(( (7/Rel)**0.9 + (0.27*Rp)/(dinner) )**(-1)))**16

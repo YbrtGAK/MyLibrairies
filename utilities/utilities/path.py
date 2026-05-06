@@ -23,7 +23,8 @@ def getAFilesPath(window_title = None, filetypes  = [('All files','*.*')]) :
     
     root = tk.Tk()
     root.withdraw()
-    path = filedialog.askopenfile(title = window_title, filetypes=filetypes)
+    root.attributes('-topmost', True)
+    path = filedialog.askopenfile(parent=root, title = window_title, filetypes=filetypes)
     try:
         return(path.name)
     except AttributeError :
@@ -35,6 +36,7 @@ def getFilesPaths(window_title = None, filetypes = None) :
     
     root = tk.Tk()
     root.withdraw()
+    root.attributes('-topmost', True)
     path = filedialog.askopenfilenames(parent = root, filetypes=filetypes,
      title = window_title)
     return(path)
@@ -45,7 +47,8 @@ def getADirsPath(window_title = None):
     
     root = tk.Tk()
     root.withdraw()
-    path = filedialog.askdirectory(title = window_title)
+    root.attributes('-topmost', True)
+    path = filedialog.askdirectory(parent=root, title = window_title)
     return(path)    
 
 def create_folder(name):
@@ -61,7 +64,8 @@ def getAFilesPathToSave(window_title = None, filetypes  = [('All files','*.*')])
     
     root = tk.Tk()
     root.withdraw()
-    path = filedialog.asksaveasfile(title = window_title, filetypes=filetypes)
+    root.attributes('-topmost', True)
+    path = filedialog.asksaveasfile(parent=root, title = window_title, filetypes=filetypes)
     return(path.name)
 
 def files_name_to_list(path : str) -> str :

@@ -150,6 +150,8 @@ class ProbabilisticDataFrame:
         seed: int | None = None,
         delta_target: float = 0.01,
         step_size: float = 1e-6,
+        nan_policy: str = "propagate",
+        max_nan_frac: float = 0.05,
     ) -> None:
         """Evaluate *model_fn* on the input columns and propagate uncertainties.
 
@@ -215,11 +217,26 @@ class ProbabilisticDataFrame:
         step_size : float
             Relative finite-difference step for sensitivity coefficients
             (``'linear'`` only, default 1e-6).
+        nan_policy : {'propagate', 'omit'}
+            ``'MC'`` only. ``'propagate'`` (default) keeps the current
+            behavior: any ``NaN`` MC sample (e.g. a CoolProp call that
+            failed for one perturbed draw) makes the whole row's
+            mean/std/quantiles ``NaN``. ``'omit'`` aggregates with
+            ``nanmean``/``nanstd``/``nanquantile`` instead, tolerating a
+            small fraction of bad samples — but a row is still forced back
+            to ``NaN`` if more than *max_nan_frac* of its samples are
+            ``NaN``, so a genuinely broken computation (most/all samples
+            failing) isn't silently masked.
+        max_nan_frac : float
+            ``'MC'`` + ``nan_policy='omit'`` only. Maximum tolerated
+            fraction of ``NaN`` MC samples per row before that row is
+            forced back to ``NaN`` (default 0.05 → 5 %).
         """
         if method == "MC":
             self._propagate_mc(
                 xk, model_fn, output_name, alpha,
                 distributions, correlation, seed, delta_target,
+                nan_policy, max_nan_frac,
             )
         elif method == "linear":
             self._propagate_linear(
@@ -287,9 +304,15 @@ class ProbabilisticDataFrame:
         correlation: np.ndarray | None,
         seed: int | None,
         delta_target: float,
+        nan_policy: str = "propagate",
+        max_nan_frac: float = 0.05,
     ) -> None:
         """Monte Carlo propagation — GUM Supplement 1 (JCGM 101:2008)."""
         self._validate_inputs(xk)
+        if nan_policy not in ("propagate", "omit"):
+            raise ValueError(
+                f"Unknown nan_policy '{nan_policy}'. Choose 'propagate' or 'omit'."
+            )
 
         nvar = len(xk)
         is_series = isinstance(self.df, pd.Series)
@@ -339,10 +362,42 @@ class ProbabilisticDataFrame:
         # --- Aggregate results ---
         axis = -1  # MC dimension is always the last axis
 
-        central = np.mean(output_samples, axis=axis)
-        std_unc = np.std(output_samples, axis=axis, ddof=1)
-        lower = np.quantile(output_samples, alpha / 2.0, axis=axis)
-        upper = np.quantile(output_samples, 1.0 - alpha / 2.0, axis=axis)
+        if nan_policy == "omit":
+            nan_frac = np.isnan(output_samples).mean(axis=axis)
+            # Rows with most/all samples NaN (nan_frac > max_nan_frac) are
+            # forced back to NaN below anyway; nanmean/nanstd/nanquantile
+            # on an all-NaN slice is expected there and merely noisy
+            # ("Mean of empty slice" etc.), not informative.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                central = np.nanmean(output_samples, axis=axis)
+                std_unc = np.nanstd(output_samples, axis=axis, ddof=1)
+                lower = np.nanquantile(output_samples, alpha / 2.0, axis=axis)
+                upper = np.nanquantile(output_samples, 1.0 - alpha / 2.0, axis=axis)
+
+            # A handful of bad samples (e.g. a CoolProp call failing right at
+            # a phase-boundary singularity for a few perturbed draws) is
+            # tolerated, but a row with most/all samples NaN is a genuinely
+            # broken computation and must stay NaN, not be silently masked.
+            too_broken = nan_frac > max_nan_frac
+            central = np.where(too_broken, np.nan, central)
+            std_unc = np.where(too_broken, np.nan, std_unc)
+            lower = np.where(too_broken, np.nan, lower)
+            upper = np.where(too_broken, np.nan, upper)
+
+            if np.any(nan_frac > 0):
+                n_affected = int(np.sum(np.atleast_1d(nan_frac) > 0))
+                warnings.warn(
+                    f"'{output_name}': {n_affected} row(s) had NaN MC "
+                    f"samples (max {np.max(nan_frac):.1%}); omitted from "
+                    "the aggregate where below max_nan_frac.",
+                    stacklevel=4,
+                )
+        else:
+            central = np.mean(output_samples, axis=axis)
+            std_unc = np.std(output_samples, axis=axis, ddof=1)
+            lower = np.quantile(output_samples, alpha / 2.0, axis=axis)
+            upper = np.quantile(output_samples, 1.0 - alpha / 2.0, axis=axis)
 
         if is_series:
             self.df[output_name] = float(central)

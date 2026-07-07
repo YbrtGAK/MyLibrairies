@@ -55,7 +55,15 @@ class Evaporator(CurrentPassageTube):
             - qeff * self.dint * self.dext**2 / (2 * 13.4 * (self.dext**2 - self.dint**2)) * log(self.dext / self.dint)
         )
         self.nloss_mono = lambda h : self.coeffs[0]*h**(-self.coeffs[1])
-        self.Pz = lambda dP_meas, dP_mono, Pin, z : (Pin - dP_mono) - ( (dP_meas - dP_mono)/(self.L) * (z + self.L_clamp_up))   
+        # Axial pressure profile, z measured from the UPSTREAM CLAMP.
+        # Anchors: P(z=0) = Pin - dP_mono (the single-phase drop covers exactly
+        # the adiabatic L_clamp_up run to the inlet tap) and
+        # P(z = L - L_clamp_up) = Pin - dP_meas (outlet tap at the tube end).
+        # The two-phase drop is therefore spread over the (L - L_clamp_up)
+        # span downstream of the clamp — NOT over the full tube, which
+        # double-counted the adiabatic upstream length (methodology review
+        # 2026-07, finding 1).
+        self.Pz = lambda dP_meas, dP_mono, Pin, z : (Pin - dP_mono) - ( (dP_meas - dP_mono)/(self.L - self.L_clamp_up) * z)
         
     def roughness(self):
         

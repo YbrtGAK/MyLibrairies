@@ -93,31 +93,39 @@ _VOLTAGE_RANGES = [
     (45e-6,  6e-6, 1000.0),
 ]
 
-# Current — taken from the manufacturers' technical documents, NOT from the
-# workbook, whose figures could not be reproduced from either datasheet:
+# Current — both supplies report their output current to LabVIEW over an RS-232
+# digital link, so what applies is each one's READBACK accuracy: not the
+# front-panel meter accuracy, and not an analog-monitor spec.
 #
 #   PH  Ametek Sorensen DCS 8-350E  (0-8 V, 0-350 A, 2800 W)
-#       Operating manual M362295-01, §1.3.1 Electrical Specifications:
-#           Meter accuracy, current .............. 4.5 A
-#           Analog programming linearity, current  3.5 A
-#           Line regulation, current ............. 0.35 A
-#           Load regulation, current ............. 0.35 A
-#       The logged value is a readback, so the meter accuracy applies: 4.5 A.
-#       The workbook's 1.4 A appears nowhere in the datasheet.
+#       DCS Series datasheet, "DCS Series : Product Specifications 1-3 kW",
+#       3 kW block, Readback Accuracy column (M130 / M131 / M9C / M85 digital
+#       interface options):
+#           Voltage ....... 12 mV
+#           Current ....... 1400 mA   <- A_I_PH
+#       Beware: the operation manual M362295-01 s1.3.1 does NOT carry this row.
+#       Its "Meter accuracy, current 4.5 A" is the front-panel display spec and
+#       must not be used for a digital readback.
 #
 #   TS  Sorensen SGA 60-250  (60 V, 250 A, 15 kW)
-#       SG Series datasheet, "Programming & Read-back Specifications":
-#           Remote digital interface, current .... +/-0.4 % of FULL SCALE
-#           Remote analog interface, read-back ... +/-1.0 % of full scale
-#           Front panel display .................. +/-(0.5 % fs + 1 digit)
-#       Full scale for THIS unit is 250 A, so 0.4 % x 250 = 1.0 A.
-#       The workbook applied the same 0.4 % to 6000 A (the series-wide maximum
-#       printed on the datasheet cover, "5-6000 A") giving 24 A, and its table
-#       used 2400 A (the 10 V / 24-30 kW entry of the ranges chart) giving
-#       9.6 A. Neither is the rating of an SGA 60-250.
+#       SG Series datasheet, "Programming & Read-back Specifications", Remote
+#       Digital Interface row (the row whose notes list RS-232C):
+#           Read-back, current ... +/-0.4 % of FULL SCALE
+#       Full scale for THIS unit is 250 A, so 0.4 % x 250 = 1.0 A. For
+#       reference the other two paths would give 2.5 A (remote analog read-back,
+#       1.0 % fs) and 1.25 A + 1 digit (front panel).
+#
+# Both therefore land on 0.4 % of their own full scale.
+#
+# The bench workbook ("Note de calcul - Incertitudes alimentations
+# electriques.xlsx") has the PH figure right at 1.4 A. Its TS figure is not:
+# it applied the correct 0.4 % to 6000 A -- the series-wide maximum printed on
+# the SG datasheet cover, "5-6000 A" -- giving 24 A, while its table used
+# 2400 A (the 10 V / 24-30 kW entry of the ranges chart) giving 9.6 A. Neither
+# is the rating of an SGA 60-250.
 #
 # Both overridable through the environment (in A) for sensitivity studies.
-A_I_PH = float(os.environ.get("A_I_PH", 4.5))    # half-width of the limit [A]
+A_I_PH = float(os.environ.get("A_I_PH", 1.4))    # half-width of the limit [A]
 A_I_TS = float(os.environ.get("A_I_TS", 1.0))    # half-width of the limit [A]
 
 U_I_PH = A_I_PH / SQRT3

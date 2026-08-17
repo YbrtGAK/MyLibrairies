@@ -195,6 +195,38 @@ def systematic_columns(columns, excel_path : str = EXCEL_PATH) -> list :
     return list(columns)
 
 
+def type_a_uncertainty(df_meas : pd.DataFrame, n_samples : int = None) -> pd.Series :
+    """Type-A standard uncertainty of the MEAN of each column (JCGM 100 s4.2.3).
+
+    u_A(qbar) = s(q) / sqrt(n), with s the experimental standard deviation of
+    the n samples of one acquisition. Unlike the Type-B terms above this one IS
+    reduced by averaging, which is exactly why the two are kept apart.
+    """
+    n = len(df_meas) if n_samples is None else int(n_samples)
+    num = df_meas.select_dtypes(include=[np.number])
+    if n < 2 or num.empty:
+        return pd.Series(0.0, index=num.columns, dtype=float)
+    return num.std(ddof=1) / np.sqrt(n)
+
+
+def combine_type_a(u_b : pd.Series, df_meas : pd.DataFrame,
+                   n_samples : int = None) -> pd.Series :
+    """Combine a Type-B uncertainty table with the Type-A sample scatter.
+
+    u = sqrt(u_B^2 + u_A^2), column by column. Columns of *u_b* that the raw
+    measurement table does not carry (derived quantities such as P_el) keep
+    their Type-B value unchanged.
+    """
+    u_a = type_a_uncertainty(df_meas, n_samples)
+    out = u_b.astype(float).copy()
+    common = [c for c in out.index if c in u_a.index]
+    if common:
+        a = pd.to_numeric(u_a[common], errors="coerce").fillna(0.0).to_numpy()
+        b = pd.to_numeric(out[common], errors="coerce").fillna(0.0).to_numpy()
+        out[common] = np.sqrt(a ** 2 + b ** 2)
+    return out
+
+
 def undo_sample_averaging(u_mean : pd.Series, n_samples : int,
                           excel_path : str = EXCEL_PATH) -> pd.Series :
     """Restore the systematic columns of *u_mean* after a /sqrt(n) division.

@@ -16,21 +16,111 @@ from flowStudy.surface_finishes import f_blasius
 import pandas as pd
 import numpy as np
 
+# ---------------------------------------------------------------------------
+#  Per-tube geometry, from the LamCos interferometry campaign.
+#
+#  Source: surface-analysis/docs/roughness_report.typ, section "Measurement and
+#  form fit" / "Radius association and its uncertainty".
+#
+#  BORE. R is the ISO 12181 least-squares associated cylinder, fitted with
+#  orthogonal residuals, an analytic Jacobian and a Taubin seed, with dropouts
+#  EXCLUDED from the association rather than nearest-neighbour filled. That last
+#  point is what moved the radii: dropouts on these surfaces are slope
+#  correlated (0 % at the apex, 24-100 % on the flanks), so filling them
+#  fabricated flank points, flattened the arc and inflated R.
+#
+#  u_r is the STANDARD uncertainty, i.e. half the report's expanded U (k = 2).
+#  It comes from three independent probes -- a truncation sweep, an axial sweep
+#  and a parabolic control -- not from the formal covariance, which the report
+#  lists only to show how far below the real figure it sits.
+#
+#  READ THE REPORT BEFORE RANKING THESE TUBES. Its own conclusion is that the
+#  five radii "remain mutually indistinguishable, and no ranking should be read
+#  into them". Carrying u_r through the GUM propagation is what keeps that
+#  true: ER_1 at 31 % relative cannot support a ranking, and the resulting
+#  interval on h says so.
+#
+#  ER_1 IS HELD AT NOMINAL. Its association has 20 % dropouts and a section 23 %
+#  out of round, giving +-0.32 mm; the report states its radius "should be
+#  treated as unresolved". The measured 1.024 mm is therefore NOT used -- the
+#  1.000 mm nominal bore is -- while u_r keeps the measured ignorance.
+#
+#  OUTER DIAMETER. Not measured by interferometry. Read with a digital
+#  instrument resolving 0.01 mm, so u = 0.01 / (2 sqrt 3) = 2.9 um for the
+#  resolution, combined in quadrature with the tube's own out-of-roundness
+#  taken as a rectangular half-range of the report's peak-to-peak figure. The
+#  out-of-roundness is measured on the INNER surface; applying it to the outer
+#  one assumes the form defect goes through the wall, which is the expected
+#  behaviour of a drawn tube.
+#
+#  Ra is the arithmetic profile roughness in the ISO roughness band.
+# ---------------------------------------------------------------------------
+TUBES = {
+    #           r_int    u(r_int)   r_ext    u(r_ext)     Ra        note
+    "ER_1":  dict(rint=1.000e-3, u_rint=0.160e-3, rext=3.000e-3,
+                  u_rext=7.19e-6, Ra=4.220e-6,
+                  radius_source="nominal (measured 1.024 mm unresolved, U=+-0.32)"),
+    "ER_7":  dict(rint=1.034e-3, u_rint=0.060e-3, rext=3.000e-3,
+                  u_rext=4.58e-6, Ra=None,
+                  radius_source="LSCI, U=+-0.12 mm"),
+    "ER_9":  dict(rint=1.112e-3, u_rint=0.040e-3, rext=3.000e-3,
+                  u_rext=3.20e-6, Ra=2.840e-6,
+                  radius_source="LSCI, U=+-0.08 mm (best conditioned)"),
+    "FR_11": dict(rint=1.217e-3, u_rint=0.145e-3, rext=3.000e-3,
+                  u_rext=3.38e-6, Ra=5.030e-6,
+                  radius_source="LSCI, U=+-0.29 mm"),
+    "PM":    dict(rint=1.050e-3, u_rint=0.045e-3, rext=3.000e-3,
+                  u_rext=3.68e-6, Ra=4.090e-6,
+                  radius_source="LSCI, U=+-0.09 mm"),
+}
+
+# Used when the tube is unknown: the nominal bore, carrying the WIDEST measured
+# uncertainty so an unidentified tube is never quietly the best-known one.
+TUBE_DEFAULT = dict(rint=1.000e-3, u_rint=0.160e-3, rext=3.000e-3,
+                    u_rext=7.19e-6, Ra=4.045e-6,
+                    radius_source="nominal, tube not identified")
+
+
+def tube_geometry(tube):
+    """(record, known) for a folder key such as 'ER_9' or 'PM'.
+
+    The key is the FOLDER name, never the integer n: FR_11 and a hypothetical
+    ER_11 both give n = 11, and that collision already sends ER_1's roughness
+    to FR_11 in the legacy roughness() branch below.
+    """
+    key = str(tube).strip() if tube is not None else ""
+    if key in TUBES:
+        return dict(TUBES[key]), True
+    return dict(TUBE_DEFAULT), False
+
+
 class Evaporator(CurrentPassageTube):
     
-    def __init__(self,n:int,dL_clamps=125E-3,L_clamp_up=90E-3,L=270E-3, CHF = 10 - 1E-2):
+    def __init__(self,n:int=None,dL_clamps=125E-3,L_clamp_up=90E-3,L=270E-3, CHF = 10 - 1E-2,
+                 tube=None):
         
         #Tube
         self.name = 'TS'
         self.n = n # Tube's number
+        # Folder key ('ER_9', 'PM', ...) — the only identifier that separates
+        # FR_11 from a hypothetical ER_11. Geometry is looked up from it; when
+        # it is absent the nominal bore is used with the widest measured
+        # uncertainty, and .tube_known says so.
+        self.tube = tube
+        geo, self.tube_known = tube_geometry(tube)
+        self.geometry_source = geo["radius_source"]
         self.L = L # Tubes'length
         self.dL_clamps = dL_clamps # Distance between clamps
         self.L_clamp_up = L_clamp_up # Distance until the upstream clamp
         self.L_clamp_ds = self.L_clamp_up + self.dL_clamps # Distance to the downstream clamp
-        self.rint = 1E-3 #m
+        self.rint = geo["rint"] #m
+        self.u_rint = geo["u_rint"] #m, standard uncertainty (report U / 2)
         self.dint = self.rint*2 #m
-        self.rext = 3E-3 #m
+        self.u_dint = self.u_rint*2 #m
+        self.rext = geo["rext"] #m
+        self.u_rext = geo["u_rext"] #m
         self.dext = self.rext*2 #m
+        self.u_dext = self.u_rext*2 #m
         self.Sint = 2*pi*self.L*self.rint #m²
         self.Sin_clamps = 2*pi*self.dL_clamps*self.rint #m²
         self.Sext = 2*pi*self.L*self.rext #m²
@@ -66,7 +156,17 @@ class Evaporator(CurrentPassageTube):
         self.Pz = lambda dP_meas, dP_mono, Pin, z : (Pin - dP_mono) - ( (dP_meas - dP_mono)/(self.L - self.L_clamp_up) * z)
         
     def roughness(self):
-        
+        """Ra from the per-tube table when the tube is identified.
+
+        The legacy branch below keys on n, where FR_11 and ER_11 collide: it
+        assigned ER_1's 4.2207 um to n = 11, i.e. to FR_11. It is kept only for
+        callers that still construct by number, and never overrides a value the
+        table supplied.
+        """
+        geo, known = tube_geometry(self.tube)
+        if known and geo.get("Ra") is not None:
+            self.Ra = geo["Ra"]
+            return
         match self.n :
             
             case 11 : 

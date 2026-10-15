@@ -29,10 +29,11 @@ import numpy as np
 #  correlated (0 % at the apex, 24-100 % on the flanks), so filling them
 #  fabricated flank points, flattened the arc and inflated R.
 #
-#  u_r is the STANDARD uncertainty, i.e. half the report's expanded U (k = 2).
-#  It comes from three independent probes -- a truncation sweep, an axial sweep
-#  and a parabolic control -- not from the formal covariance, which the report
-#  lists only to show how far below the real figure it sits.
+#  u_r is the STANDARD uncertainty, the report's combined u_c(R) (its expanded
+#  U = 2 u_c, k = 2). It comes from three independent probes -- a truncation
+#  sweep, an axial sweep and a parabolic control -- not from the formal
+#  covariance, which the report lists only to show how far below the real
+#  figure it sits.
 #
 #  READ THE REPORT BEFORE RANKING THESE TUBES. Its own conclusion is that the
 #  five radii "remain mutually indistinguishable, and no ranking should be read
@@ -40,10 +41,10 @@ import numpy as np
 #  true: ER_1 at 31 % relative cannot support a ranking, and the resulting
 #  interval on h says so.
 #
-#  ER_1 IS HELD AT NOMINAL. Its association has 20 % dropouts and a section 23 %
-#  out of round, giving +-0.32 mm; the report states its radius "should be
-#  treated as unresolved". The measured 1.024 mm is therefore NOT used -- the
-#  1.000 mm nominal bore is -- while u_r keeps the measured ignorance.
+#  Every tube takes the report's associated radius, ER_1 included. Its
+#  association has 20 % dropouts and a section 23 % out of round, so the report
+#  calls its radius "unresolved": u_r carries that ignorance, the central value
+#  stays the reported one.
 #
 #  OUTER DIAMETER. Not measured by interferometry. Read with a digital
 #  instrument resolving 0.01 mm, so u = 0.01 / (2 sqrt 3) = 2.9 um for the
@@ -53,31 +54,34 @@ import numpy as np
 #  one assumes the form defect goes through the wall, which is the expected
 #  behaviour of a drawn tube.
 #
-#  Ra is the arithmetic profile roughness in the ISO roughness band.
+#  Ra is the arithmetic profile roughness in the ISO roughness band: the
+#  report's R_a, mean of the three axial profiles. It replaces the earlier
+#  4.22 / 2.84 / 5.03 / 4.09 um, which the surface measurements proved wrong.
 # ---------------------------------------------------------------------------
 TUBES = {
     #           r_int    u(r_int)   r_ext    u(r_ext)     Ra        note
-    "ER_1":  dict(rint=1.000e-3, u_rint=0.160e-3, rext=3.000e-3,
-                  u_rext=7.19e-6, Ra=4.220e-6,
-                  radius_source="nominal (measured 1.024 mm unresolved, U=+-0.32)"),
-    "ER_7":  dict(rint=1.034e-3, u_rint=0.060e-3, rext=3.000e-3,
-                  u_rext=4.58e-6, Ra=None,
+    "ER_1":  dict(rint=1.024e-3, u_rint=0.161e-3, rext=3.000e-3,
+                  u_rext=7.19e-6, Ra=3.48e-6,
+                  radius_source="LSCI, U=+-0.32 mm (unresolved)"),
+    "ER_7":  dict(rint=1.034e-3, u_rint=0.062e-3, rext=3.000e-3,
+                  u_rext=4.58e-6, Ra=0.50e-6,
                   radius_source="LSCI, U=+-0.12 mm"),
-    "ER_9":  dict(rint=1.112e-3, u_rint=0.040e-3, rext=3.000e-3,
-                  u_rext=3.20e-6, Ra=2.840e-6,
+    "ER_9":  dict(rint=1.112e-3, u_rint=0.042e-3, rext=3.000e-3,
+                  u_rext=3.20e-6, Ra=2.50e-6,
                   radius_source="LSCI, U=+-0.08 mm (best conditioned)"),
-    "FR_11": dict(rint=1.217e-3, u_rint=0.145e-3, rext=3.000e-3,
-                  u_rext=3.38e-6, Ra=5.030e-6,
+    "FR_11": dict(rint=1.217e-3, u_rint=0.143e-3, rext=3.000e-3,
+                  u_rext=3.38e-6, Ra=5.39e-6,
                   radius_source="LSCI, U=+-0.29 mm"),
-    "PM":    dict(rint=1.050e-3, u_rint=0.045e-3, rext=3.000e-3,
-                  u_rext=3.68e-6, Ra=4.090e-6,
+    "PM":    dict(rint=1.050e-3, u_rint=0.047e-3, rext=3.000e-3,
+                  u_rext=3.68e-6, Ra=5.13e-6,
                   radius_source="LSCI, U=+-0.09 mm"),
 }
 
 # Used when the tube is unknown: the nominal bore, carrying the WIDEST measured
-# uncertainty so an unidentified tube is never quietly the best-known one.
-TUBE_DEFAULT = dict(rint=1.000e-3, u_rint=0.160e-3, rext=3.000e-3,
-                    u_rext=7.19e-6, Ra=4.045e-6,
+# uncertainty so an unidentified tube is never quietly the best-known one. Ra is
+# the mean of the five measured tubes.
+TUBE_DEFAULT = dict(rint=1.000e-3, u_rint=0.161e-3, rext=3.000e-3,
+                    u_rext=7.19e-6, Ra=3.40e-6,
                     radius_source="nominal, tube not identified")
 
 
@@ -156,22 +160,15 @@ class Evaporator(CurrentPassageTube):
         self.Pz = lambda dP_meas, dP_mono, Pin, z : (Pin - dP_mono) - ( (dP_meas - dP_mono)/(self.L - self.L_clamp_up) * z)
         
     def roughness(self):
-        """Ra from the per-tube table when the tube is identified.
+        """Ra from the per-tube table, or the table default for an unknown tube.
 
-        The legacy branch below keys on n, where FR_11 and ER_11 collide: it
-        assigned ER_1's 4.2207 um to n = 11, i.e. to FR_11. It is kept only for
-        callers that still construct by number, and never overrides a value the
-        table supplied.
+        The former legacy branch keyed on n, where FR_11 and ER_11 collide, and
+        gave n = 11 the superseded 4.2207 um; callers that construct by number
+        alone now get the default instead.
         """
-        geo, known = tube_geometry(self.tube)
-        if known and geo.get("Ra") is not None:
-            self.Ra = geo["Ra"]
-            return
-        match self.n :
-            
-            case 11 : 
-                self.Ra = 4.220689848*1E-6 # [-]
-                
+        geo, _ = tube_geometry(self.tube)
+        self.Ra = geo["Ra"]
+
     def pow_ratio(self,dt,Pelec):
         return(self.f_pow_ratio(dt,Pelec))
 

@@ -9,6 +9,7 @@ utilities.egg-info/SOURCES.txt
 utilities.egg-info/dependency_links.txt
 utilities.egg-info/top_level.txt
 utilities/data/__init__.py
+utilities/data/backup.py
 utilities/data/cihx.py
 utilities/data/dataframe.py
 utilities/data/excel.py

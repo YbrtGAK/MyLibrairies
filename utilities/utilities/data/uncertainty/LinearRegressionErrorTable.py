@@ -134,6 +134,68 @@ U_I_TS = A_I_TS / SQRT3
 ELECTRICAL_COLUMNS = ['109 -  V_PH_corr [V]', 'I_PH (A)', 'P_el_PH (W)',
                       '117 - V_TS_corr [V]', 'I_TS (A)', 'P_el_TS (W)']
 
+# Mass-flow meter: manufacturer limit of 0.2 % of reading, rectangular like the
+# power-supply limits above.
+A_MASS_REL = 0.2 / 100
+
+# ---------------------------------------------------------------------------
+# Pressure transducers — calibration certificates
+# ---------------------------------------------------------------------------
+# Every transducer, absolute and differential, was calibrated by an external
+# company that issued one certificate per sensor (calibration law and its
+# uncertainty). The 'capteurs de pression' sheet of the workbook transcribes
+# them, the uncertainty in its 'Err [hPa]' column.
+#
+# The sheet's 'n° canal' column is out of date: the sensors moved between
+# acquisition channels after it was filled in. Matching on it gave the outlet
+# transducer (LVM channel 114) the 0.062 hPa of the 0-50 mbar differential
+# sensor instead of its own 70 hPa. Sensors are therefore matched on the
+# sheet's 'Nom' column, through the LVM channel below.
+#
+# The factor converts hPa into the unit the LVM column ACTUALLY carries. The
+# absolute transducers are logged in bar. The 0-2 bar differential channel is
+# logged in mbar despite its "[bars]" header (see HTC_analysis), so its
+# uncertainty stays in hPa = mbar; applying the bar factor made it 1000 times
+# too small.
+#
+# Channel 113 (DP_5) has no certificate in the sheet and is dead on this bench,
+# so it gets no uncertainty column.
+#
+# TO CHECK: 'Err [hPa]' is used here as a STANDARD uncertainty (k = 1). If the
+# certificates state an expanded uncertainty (k = 2 is the usual convention),
+# every value below must be halved.
+PRESSURE_SENSORS = {
+    # LVM channel: (sheet 'Nom', hPa -> LVM column unit)
+    '114': ('Evaporator out',         1e-3),   # bar
+    '115': ('Tank',                   1e-3),   # bar
+    '118': ('Evaporator in',          1e-3),   # bar
+    '120': ('Pump in',                1e-3),   # bar
+    '112': ('Evaporator (0-2 bars)',  1.0),    # mbar, despite the header
+    '102': ('Evaporator (0-50mbars)', 1.0),    # mbar
+}
+
+
+def _lvm_channel(column : str) -> str :
+    """'114 - P_TS_out [bars]' -> '114'."""
+    return column.split(' - ')[0].strip()
+
+
+def pressure_uncertainties(excel_path : str = EXCEL_PATH) -> dict :
+    """Standard uncertainty of each pressure channel, in its LVM column unit.
+
+    Keyed by LVM channel number. A sensor named in PRESSURE_SENSORS but missing
+    from the sheet raises, rather than leaving the channel silently exact.
+    """
+    sheet = pd.read_excel(excel_path, sheet_name="capteurs de pression")
+    err_hpa = dict(zip(sheet['Nom'].astype(str).str.strip(), sheet['Err [hPa]']))
+    out = {}
+    for channel, (name, factor) in PRESSURE_SENSORS.items():
+        if name not in err_hpa:
+            raise KeyError(f"Pressure sensor '{name}' (channel {channel}) not "
+                           f"found in the 'capteurs de pression' sheet.")
+        out[channel] = float(err_hpa[name]) * factor
+    return out
+
 
 def voltage_uncertainty(voltage : float) -> float :
     """Standard uncertainty of a DMM voltage reading [V].
@@ -181,8 +243,8 @@ def _power_uncertainty(P, V, uV, I, uI):
 #
 # That is EVERY column this module emits: the thermocouples (calibration
 # residuals), the electrical chain (instrument limits), the pressure
-# transducers ('Err [hPa]', calibration) and the mass-flow meter (0.2 % of
-# reading, manufacturer data). None of them is random sample-to-sample scatter,
+# transducers ('Err [hPa]', calibration certificates) and the mass-flow meter
+# (0.2 % of reading, manufacturer limit). None of them is random sample-to-sample scatter,
 # so none is reducible by averaging and systematic_columns() returns all of
 # them.
 #
@@ -248,7 +310,6 @@ def generateUdf(df_meas : pd.DataFrame) -> pd.DataFrame :
 
     # Get the excel in a table
     excel_path = EXCEL_PATH
-    df_excel_pressure = pd.read_excel(excel_path,sheet_name="capteurs de pression")
     df_excel_thermocouple = pd.read_excel(excel_path, sheet_name="thermocouples")
     df_excel_thermocouple['RMSE [°C]'] = df_excel_thermocouple['RMSE [°C]'].fillna(1.5)
 
@@ -259,17 +320,19 @@ def generateUdf(df_meas : pd.DataFrame) -> pd.DataFrame :
             if str(df_excel_thermocouple['n° canal'][i]) in df_meas.columns[j] : 
                     dict_canal_thermocouple[df_meas.columns[j]] = pd.Series([df_excel_thermocouple['RMSE [°C]'][i] for k in range(len(df_meas))]) 
     
-    # Get matching pressure sensors 
+    # Get matching pressure sensors, by name (see PRESSURE_SENSORS)
+    u_pressure = pressure_uncertainties(excel_path)
     dict_canal_pressure = {}
-    for i in range(len(df_excel_pressure)):
-        for j in range(len(df_meas.columns)) : 
-            if str(df_excel_pressure['n° canal'][i]) in df_meas.columns[j] : 
-                    dict_canal_pressure[df_meas.columns[j]] = pd.Series([df_excel_pressure['Err [hPa]'][i]*1E-3 for k in range(len(df_meas))]) 
+    for col in df_meas.columns:
+        channel = _lvm_channel(col)
+        if channel in u_pressure:
+            dict_canal_pressure[col] = np.full(len(df_meas), u_pressure[channel])
 
     dict_canal =   dict_canal_pressure | dict_canal_thermocouple # Merge the dictionnaries
 
-    # Add mass flow sensor uncertainty
-    dict_canal['105 - mass [kg/s]'] = df_meas['105 - mass [kg/s]'].values*0.2/100 # Donnée constructeur : erreur = 0.2% de la mesure
+    # Add mass flow sensor uncertainty: manufacturer limit, rectangular
+    dict_canal['105 - mass [kg/s]'] = (
+        np.abs(df_meas['105 - mass [kg/s]'].values) * A_MASS_REL / SQRT3)
 
     # ---------------------------------------------------------------------
     # Electric power supplies

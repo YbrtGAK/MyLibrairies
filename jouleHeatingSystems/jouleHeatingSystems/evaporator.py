@@ -8,7 +8,7 @@ Class of the evaporator
 """
 
 # Imports
-from math import pi, log
+from math import pi, log, sqrt
 from flowStudy.thermodynamics import H, Psat, Tsat, rho, mu, Hl, Hv, Cp
 from jouleHeatingSystems.current_passage_tube import CurrentPassageTube
 from flowStudy.flow import G,Re 
@@ -17,71 +17,66 @@ import pandas as pd
 import numpy as np
 
 # ---------------------------------------------------------------------------
-#  Per-tube geometry, from the LamCos interferometry campaign.
+#  Per-tube geometry. Same values as the thesis table "Geometry of the
+#  evaporators" (chapter 4).
 #
-#  Source: surface-analysis/docs/roughness_report.typ, section "Measurement and
-#  form fit" / "Radius association and its uncertainty".
+#  BORE. r_int is the least-squares cylinder fitted to the whole coherence
+#  scanning interferometry map of the inner surface (LamCos campaign, S-filter
+#  25 um). u_rint is its STANDARD uncertainty, a Type A: the radius fitted on
+#  ten non-overlapping axial windows, u = s / sqrt(10), nu = 9
+#  (surface-analysis/scripts/radius_type_a.py, result in
+#  D:/Etats de surface/Mesures/LamCos/cylinder_validation/radius_type_a.json,
+#  axial "10"). These replace the roughness report's association, whose u_c
+#  (42-161 um) made the five bores indistinguishable. FR_11 is not one of the
+#  four thesis evaporators and keeps the roughness-report values.
 #
-#  BORE. R is the ISO 12181 least-squares associated cylinder, fitted with
-#  orthogonal residuals, an analytic Jacobian and a Taubin seed, with dropouts
-#  EXCLUDED from the association rather than nearest-neighbour filled. That last
-#  point is what moved the radii: dropouts on these surfaces are slope
-#  correlated (0 % at the apex, 24-100 % on the flanks), so filling them
-#  fabricated flank points, flattened the arc and inflated R.
+#  OUTER DIAMETER, HEATED LENGTH. Read with a STROXX 0-150 mm digital calliper,
+#  resolution 0.01 mm, accuracy +-0.02 mm. The accuracy limit includes the
+#  resolution; taken as rectangular (JCGM 100 s4.3.7) it gives
+#  u = 0.02 / sqrt(3) mm on any length read with it. The calliper reads the
+#  diameter, so u(r_ext) = u(d_ext) / 2.
 #
-#  u_r is the STANDARD uncertainty, the report's combined u_c(R) (its expanded
-#  U = 2 u_c, k = 2). It comes from three independent probes -- a truncation
-#  sweep, an axial sweep and a parabolic control -- not from the formal
-#  covariance, which the report lists only to show how far below the real
-#  figure it sits.
-#
-#  READ THE REPORT BEFORE RANKING THESE TUBES. Its own conclusion is that the
-#  five radii "remain mutually indistinguishable, and no ranking should be read
-#  into them". Carrying u_r through the GUM propagation is what keeps that
-#  true: ER_1 at 31 % relative cannot support a ranking, and the resulting
-#  interval on h says so.
-#
-#  Every tube takes the report's associated radius, ER_1 included. Its
-#  association has 20 % dropouts and a section 23 % out of round, so the report
-#  calls its radius "unresolved": u_r carries that ignorance, the central value
-#  stays the reported one.
-#
-#  OUTER DIAMETER. Not measured by interferometry. Read with a digital
-#  instrument resolving 0.01 mm, so u = 0.01 / (2 sqrt 3) = 2.9 um for the
-#  resolution, combined in quadrature with the tube's own out-of-roundness
-#  taken as a rectangular half-range of the report's peak-to-peak figure. The
-#  out-of-roundness is measured on the INNER surface; applying it to the outer
-#  one assumes the form defect goes through the wall, which is the expected
-#  behaviour of a drawn tube.
+#  LENGTHS. L is the tube length, which is also the pressure-tap spacing, and
+#  L_clamp_up the unheated length from the inlet tap to the first clamp. Raw
+#  (PM) is 30 mm longer than the EDM tubes, all of it upstream of the clamps:
+#  120 mm instead of 90 mm, the heated length and the downstream end being the
+#  same. L exceeds the calliper range: it was read with a ruler graduated in
+#  millimetres, so u = 0.5 / sqrt(3) mm (half a graduation, rectangular).
 #
 #  Ra is the arithmetic profile roughness in the ISO roughness band: the
 #  report's R_a, mean of the three axial profiles. It replaces the earlier
 #  4.22 / 2.84 / 5.03 / 4.09 um, which the surface measurements proved wrong.
 # ---------------------------------------------------------------------------
+CALLIPER_ACCURACY = 0.02e-3                  # m, half-width of the limit
+U_CALLIPER = CALLIPER_ACCURACY / sqrt(3)     # m, standard uncertainty
+U_REXT = U_CALLIPER / 2                      # m, r_ext = d_ext / 2
+U_RULER = 0.5e-3 / sqrt(3)                   # m, millimetre ruler (tube length L)
+
 TUBES = {
-    #           r_int    u(r_int)   r_ext    u(r_ext)     Ra        note
-    "ER_1":  dict(rint=1.024e-3, u_rint=0.161e-3, rext=3.000e-3,
-                  u_rext=7.19e-6, Ra=3.48e-6,
-                  radius_source="LSCI, U=+-0.32 mm (unresolved)"),
-    "ER_7":  dict(rint=1.034e-3, u_rint=0.062e-3, rext=3.000e-3,
-                  u_rext=4.58e-6, Ra=0.50e-6,
-                  radius_source="LSCI, U=+-0.12 mm"),
-    "ER_9":  dict(rint=1.112e-3, u_rint=0.042e-3, rext=3.000e-3,
-                  u_rext=3.20e-6, Ra=2.50e-6,
-                  radius_source="LSCI, U=+-0.08 mm (best conditioned)"),
+    #           r_int      u(r_int)  r_ext     u(r_ext)      Ra
+    "ER_1":  dict(rint=1.0235e-3, u_rint=4.1e-6, rext=3.000e-3,
+                  u_rext=U_REXT, Ra=3.48e-6, L=0.270, L_clamp_up=0.090,
+                  radius_source="CSI least-squares cylinder, Type A"),
+    "ER_7":  dict(rint=1.0343e-3, u_rint=5.3e-6, rext=3.000e-3,
+                  u_rext=U_REXT, Ra=0.50e-6, L=0.270, L_clamp_up=0.090,
+                  radius_source="CSI least-squares cylinder, Type A"),
+    "ER_9":  dict(rint=1.1119e-3, u_rint=2.5e-6, rext=3.000e-3,
+                  u_rext=U_REXT, Ra=2.50e-6, L=0.270, L_clamp_up=0.090,
+                  radius_source="CSI least-squares cylinder, Type A"),
     "FR_11": dict(rint=1.217e-3, u_rint=0.143e-3, rext=3.000e-3,
-                  u_rext=3.38e-6, Ra=5.39e-6,
-                  radius_source="LSCI, U=+-0.29 mm"),
-    "PM":    dict(rint=1.050e-3, u_rint=0.047e-3, rext=3.000e-3,
-                  u_rext=3.68e-6, Ra=5.13e-6,
-                  radius_source="LSCI, U=+-0.09 mm"),
+                  u_rext=U_REXT, Ra=5.39e-6, L=0.270, L_clamp_up=0.090,
+                  radius_source="roughness report LSCI, U=+-0.29 mm"),
+    "PM":    dict(rint=1.0505e-3, u_rint=18.5e-6, rext=3.000e-3,
+                  u_rext=U_REXT, Ra=5.13e-6, L=0.300, L_clamp_up=0.120,
+                  radius_source="CSI least-squares cylinder, Type A"),
 }
 
-# Used when the tube is unknown: the nominal bore, carrying the WIDEST measured
-# uncertainty so an unidentified tube is never quietly the best-known one. Ra is
-# the mean of the five measured tubes.
+# Used when the tube is unknown: the nominal bore, carrying the widest bore
+# uncertainty ever stated for these tubes (161 um, the former roughness report)
+# so an unidentified tube is never quietly the best-known one. Ra is the mean of
+# the five measured tubes, the lengths those of the EDM tubes.
 TUBE_DEFAULT = dict(rint=1.000e-3, u_rint=0.161e-3, rext=3.000e-3,
-                    u_rext=7.19e-6, Ra=3.40e-6,
+                    u_rext=U_REXT, Ra=3.40e-6, L=0.270, L_clamp_up=0.090,
                     radius_source="nominal, tube not identified")
 
 
@@ -100,7 +95,7 @@ def tube_geometry(tube):
 
 class Evaporator(CurrentPassageTube):
     
-    def __init__(self,n:int=None,dL_clamps=125E-3,L_clamp_up=90E-3,L=270E-3, CHF = 10 - 1E-2,
+    def __init__(self,n:int=None,dL_clamps=125E-3,L_clamp_up=None,L=None, CHF = 10 - 1E-2,
                  tube=None):
         
         #Tube
@@ -113,12 +108,15 @@ class Evaporator(CurrentPassageTube):
         self.tube = tube
         geo, self.tube_known = tube_geometry(tube)
         self.geometry_source = geo["radius_source"]
-        self.L = L # Tubes'length
+        # L and L_clamp_up come from the per-tube table unless given here.
+        self.L = geo["L"] if L is None else L # Tubes'length (pressure-tap spacing)
+        self.u_L = U_RULER #m, standard uncertainty (millimetre ruler)
         self.dL_clamps = dL_clamps # Distance between clamps
-        self.L_clamp_up = L_clamp_up # Distance until the upstream clamp
+        self.u_dL_clamps = U_CALLIPER #m, standard uncertainty (calliper)
+        self.L_clamp_up = geo["L_clamp_up"] if L_clamp_up is None else L_clamp_up # Distance until the upstream clamp
         self.L_clamp_ds = self.L_clamp_up + self.dL_clamps # Distance to the downstream clamp
         self.rint = geo["rint"] #m
-        self.u_rint = geo["u_rint"] #m, standard uncertainty (report U / 2)
+        self.u_rint = geo["u_rint"] #m, standard uncertainty (Type A)
         self.dint = self.rint*2 #m
         self.u_dint = self.u_rint*2 #m
         self.rext = geo["rext"] #m

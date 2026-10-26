@@ -13,7 +13,24 @@ from functools import lru_cache
 import numpy as np
 import pandas as pd
 
-EXCEL_PATH = r"C:\Users\Yann\Documents\These\Etalonnage.xlsm"
+# Calibration workbook: the ETALONNAGE_XLSM environment variable if set,
+# otherwise the first copy found among the known locations (acquisition PC,
+# then the root of D: on the writing laptop).
+_EXCEL_CANDIDATES = (r"C:\Users\Yann\Documents\These\Etalonnage.xlsm",
+                     r"D:\Etalonnage.xlsm")
+
+
+def _find_workbook() -> str :
+    env = os.environ.get("ETALONNAGE_XLSM")
+    if env:
+        return env
+    for path in _EXCEL_CANDIDATES:
+        if os.path.exists(path):
+            return path
+    return _EXCEL_CANDIDATES[0]
+
+
+EXCEL_PATH = _find_workbook()
 
 # ---------------------------------------------------------------------------
 # Systematic floor on the thermocouple uncertainty
@@ -27,15 +44,23 @@ EXCEL_PATH = r"C:\Users\Yann\Documents\These\Etalonnage.xlsm"
 # wall-to-fluid temperature difference — and hence h — look an order of
 # magnitude better known than it is.
 #
-# TC_UNCERTAINTY_FLOOR is a Type-B floor applied to every thermocouple channel,
-# and it is *systematic*: it is common to all the samples of a run, so it must
-# NOT be divided by sqrt(N) when the run is averaged. Callers that average a
-# .lvm acquisition therefore have to re-apply it afterwards — see
-# apply_thermocouple_floor().
+# TC_UNCERTAINTY_FLOOR is a Type-B floor applied to every thermocouple channel
+# but the two below, and it is *systematic*: it is common to all the samples of
+# a run, so it must NOT be divided by sqrt(N) when the run is averaged. Callers
+# that average a .lvm acquisition therefore have to re-apply it afterwards —
+# see apply_thermocouple_floor().
 #
-# Override with the TC_UNCERTAINTY_FLOOR environment variable (in °C); set it
-# to 0 to recover the raw calibration residuals.
+# The two immersed fluid thermocouples of the evaporator, inlet (202) and
+# outlet (218), take TC_FLUID_FLOOR instead: 0.15 °C, from the in-house
+# calibration campaign (thesis, data reduction chapter). Their fit residuals
+# (0.004 and 0.001 °C) are the two below 0.01 °C mentioned above, so this floor
+# is what sets their uncertainty.
+#
+# Override with the TC_UNCERTAINTY_FLOOR and TC_FLUID_FLOOR environment
+# variables (in °C); set both to 0 to recover the raw calibration residuals.
 TC_UNCERTAINTY_FLOOR = float(os.environ.get("TC_UNCERTAINTY_FLOOR", 0.3))
+TC_FLUID_FLOOR = float(os.environ.get("TC_FLUID_FLOOR", 0.15))
+TC_FLUID_CHANNELS = ('202', '218')
 
 
 @lru_cache(maxsize=1)
@@ -57,18 +82,22 @@ def thermocouple_columns(columns, excel_path : str = EXCEL_PATH) -> list :
 
 def apply_thermocouple_floor(udf : pd.DataFrame,
                              floor : float = None,
-                             excel_path : str = EXCEL_PATH) -> pd.DataFrame :
-    """Raise every thermocouple column of *udf* to at least *floor* (°C).
+                             excel_path : str = EXCEL_PATH,
+                             fluid_floor : float = None) -> pd.DataFrame :
+    """Raise every thermocouple column of *udf* to at least its floor (°C).
 
-    Idempotent, and meant to be applied again after any sqrt(N) averaging of
-    the uncertainty table: the floor stands for a systematic effect that
-    repeating the measurement does not reduce.
+    The channels of TC_FLUID_CHANNELS take *fluid_floor*, every other one
+    *floor*; a floor <= 0 leaves its channels untouched. Idempotent, and meant
+    to be applied again after any sqrt(N) averaging of the uncertainty table:
+    the floor stands for a systematic effect that repeating the measurement
+    does not reduce.
     """
     floor = TC_UNCERTAINTY_FLOOR if floor is None else float(floor)
-    if floor <= 0:
-        return udf
+    fluid_floor = TC_FLUID_FLOOR if fluid_floor is None else float(fluid_floor)
     for col in thermocouple_columns(udf.columns, excel_path):
-        udf[col] = np.maximum(pd.to_numeric(udf[col], errors="coerce"), floor)
+        f = fluid_floor if _lvm_channel(col) in TC_FLUID_CHANNELS else floor
+        if f > 0:
+            udf[col] = np.maximum(pd.to_numeric(udf[col], errors="coerce"), f)
     return udf
 
 

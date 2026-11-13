@@ -600,13 +600,18 @@ class ProbabilisticDataFrame:
         # Sensitivity coefficients c_i = ∂f/∂Xi via central finite differences
         sensitivities = {}
         for col in xk:
+            # Step proportional to the scale of the input: its value or, for an
+            # input whose value is (near) zero, its standard uncertainty. With
+            # |nominal| alone a zero input got a step of 1e-16, below the
+            # rounding of the model, and its sensitivity came out as zero.
             if is_series:
                 nominal = float(self.df[col])
-                # Adaptive step proportional to |nominal|, with a floor
-                h = step_size * max(abs(nominal), 1e-10)
+                u_nom = float(self.udf[col])
+                h = step_size * np.fmax(np.fmax(abs(nominal), u_nom), 1e-10)
             else:
                 nominal = self.df[col].to_numpy(dtype=float)
-                h = step_size * np.maximum(np.abs(nominal), 1e-10)
+                u_nom = np.asarray(self.udf[col], dtype=float)
+                h = step_size * np.fmax(np.fmax(np.abs(nominal), u_nom), 1e-10)
 
             # Create perturbed dicts; dict(central_input) is a shallow copy,
             # which is safe because we only replace one key per iteration.
